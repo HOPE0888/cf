@@ -1,0 +1,250 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>QuickPick - 扫码自提系统</title>
+    <!-- 引入外部库：Tailwind 样式, FontAwesome 图标 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap');
+        body { 
+            font-family: 'Noto Sans SC', sans-serif; 
+            background-color: #f8fafc;
+            margin: 0; padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .animate-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        #root { min-height: 100vh; display: flex; flex-direction: column; }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root">
+        <!-- 加载动画，React 启动后会被替换 -->
+        <div class="flex flex-col items-center justify-center min-h-screen bg-white">
+            <div class="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            <p class="mt-4 text-slate-400 font-bold text-xs uppercase tracking-widest">System Starting...</p>
+        </div>
+    </div>
+
+    <!-- React 核心逻辑 -->
+    <script type="module">
+        import React, { useState, useEffect } from 'https://esm.sh/react@18.2.0';
+        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+        import { HashRouter, Routes, Route, Link, useNavigate, useParams } from 'https://esm.sh/react-router-dom@6.11.2?external=react,react-dom';
+
+        // --- 商品数据定义 ---
+        const PRODUCTS = [
+            { id: 'p1', name: { zh: '经典拿铁', ja: '厳選ラテ' }, price: 500, img: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=400', desc: '口感顺滑，现磨豆' },
+            { id: 'p2', name: { zh: '冰美式', ja: 'ブラック' }, price: 400, img: 'https://images.unsplash.com/photo-1559496417-e7f25cb247f3?w=400', desc: '清爽提神' },
+            { id: 'p3', name: { zh: '芝士蛋糕', ja: 'いちごケーキ' }, price: 650, img: 'https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=400', desc: '甜而不腻，入口即化' },
+            { id: 'p4', name: { zh: '抹茶冷萃', ja: '冷茶' }, price: 450, img: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=400', desc: '夏日清爽首选' }
+        ];
+
+        const App = () => {
+            const [lang, setLang] = useState('zh');
+            const [cart, setCart] = useState([]);
+            const [orders, setOrders] = useState([]);
+            const rate = 0.048; // 固定汇率示例
+
+            const onAdd = (id) => setCart(prev => {
+                const ex = prev.find(i => i.id === id);
+                return ex ? prev.map(i => i.id === id ? {...i, qty: i.qty+1} : i) : [...prev, {id, qty: 1}];
+            });
+
+            const onRemove = (id) => setCart(prev => prev.map(i => i.id === id ? {...i, qty: i.qty-1} : i).filter(i => i.qty > 0));
+
+            return (
+                <HashRouter>
+                    <div className="max-w-md mx-auto min-h-screen bg-white shadow-2xl flex flex-col relative overflow-hidden">
+                        {/* 导航栏 */}
+                        <nav className="bg-white/80 backdrop-blur-md border-b sticky top-0 z-50 px-4 h-16 flex items-center justify-between">
+                            <Link to="/" className="text-xl font-black italic text-indigo-600 tracking-tighter">QUICKPICK.</Link>
+                            <div className="flex gap-4 items-center">
+                                <select value={lang} onChange={e => setLang(e.target.value)} className="text-[10px] font-black bg-slate-100 border-none rounded-full px-2 py-1 outline-none">
+                                    <option value="zh">中文</option>
+                                    <option value="ja">日本語</option>
+                                </select>
+                                <Link to="/admin" className="text-slate-300 hover:text-indigo-600 transition-colors"><i className="fa-solid fa-gear"></i></Link>
+                            </div>
+                        </nav>
+
+                        <main className="flex-1 p-4">
+                            <Routes>
+                                <Route path="/" element={<Shop lang={lang} cart={cart} onAdd={onAdd} onRemove={onRemove} rate={rate} />} />
+                                <Route path="/checkout" element={<Checkout cart={cart} rate={rate} onDone={(o) => {setOrders([o, ...orders]); setCart([]); return o;}} />} />
+                                <Route path="/done/:id" element={<Done orders={orders} />} />
+                                <Route path="/admin" element={<Admin orders={orders} />} />
+                            </Routes>
+                        </main>
+                    </div>
+                </HashRouter>
+            );
+        };
+
+        const Shop = ({ lang, cart, onAdd, onRemove, rate }) => {
+            const totalQty = cart.reduce((s, i) => s + i.qty, 0);
+            const totalJPY = cart.reduce((s, i) => {
+                const p = PRODUCTS.find(x => x.id === i.id);
+                return s + (p ? p.price * i.qty : 0);
+            }, 0);
+
+            return (
+                <div className="animate-in pb-20">
+                    <div className="bg-indigo-600 rounded-[2rem] p-6 text-white mb-6 shadow-xl shadow-indigo-100">
+                        <h2 className="text-2xl font-black italic leading-tight uppercase">Order Online.<br/>Pick Up Here.</h2>
+                        <p className="text-[10px] font-bold opacity-60 mt-2 tracking-widest uppercase">扫码下单 · 柜台自提</p>
+                    </div>
+                    
+                    <div className="space-y-4">
+                        {PRODUCTS.map(p => {
+                            const item = cart.find(i => i.id === p.id);
+                            return (
+                                <div key={p.id} className="bg-white border border-slate-50 p-3 rounded-2xl flex gap-4 shadow-sm">
+                                    <img src={p.img} className="w-24 h-24 object-cover rounded-xl bg-slate-100" />
+                                    <div className="flex-1 flex flex-col justify-between py-1">
+                                        <div>
+                                            <h3 className="font-bold text-slate-800">{p.name[lang]}</h3>
+                                            <p className="text-[10px] text-slate-400 mt-1">{p.desc}</p>
+                                        </div>
+                                        <div className="flex justify-between items-end">
+                                            <div>
+                                                <p className="text-indigo-600 font-black text-lg">¥{p.price}</p>
+                                                <p className="text-[10px] text-emerald-500 font-bold leading-none">≈￥{(p.price * rate).toFixed(2)}</p>
+                                            </div>
+                                            <div className="flex items-center gap-3 bg-slate-50 p-1 rounded-full border border-slate-100 shadow-inner">
+                                                <button onClick={() => onRemove(p.id)} className="w-6 h-6 rounded-full bg-white border flex items-center justify-center text-xs shadow-sm">-</button>
+                                                <span className="text-xs font-black w-4 text-center">{item?.qty || 0}</span>
+                                                <button onClick={() => onAdd(p.id)} className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs shadow-md">+</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {totalQty > 0 && (
+                        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm bg-slate-900 text-white p-4 rounded-3xl shadow-2xl flex justify-between items-center border border-slate-700 animate-in">
+                            <div>
+                                <p className="text-[10px] font-bold opacity-40 uppercase tracking-tighter">{totalQty} ITEMS</p>
+                                <p className="text-lg font-black leading-none">¥{totalJPY} JPY</p>
+                            </div>
+                            <Link to="/checkout" className="bg-indigo-600 px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-indigo-500 transition-all active:scale-95">去结算</Link>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const Checkout = ({ cart, rate, onDone }) => {
+            const [form, setForm] = useState({ name: '', img: '' });
+            const nav = useNavigate();
+            const jpy = cart.reduce((s, i) => s + PRODUCTS.find(x => x.id === i.id).price * i.qty, 0);
+            const cny = (jpy * rate).toFixed(2);
+
+            const handleFile = (e) => {
+                const reader = new FileReader();
+                reader.onloadend = () => setForm({...form, img: reader.result});
+                reader.readAsDataURL(e.target.files[0]);
+            };
+
+            const submit = () => {
+                if(!form.name || !form.img) return alert("请完整填写信息并上传凭证");
+                const o = onDone({
+                    id: Date.now(), 
+                    name: form.name, 
+                    code: Math.random().toString(36).substr(2,6).toUpperCase(), 
+                    cny, 
+                    img: form.img, 
+                    time: new Date().toLocaleTimeString()
+                });
+                nav(`/done/${o.id}`);
+            };
+
+            return (
+                <div className="animate-in space-y-6">
+                    <h2 className="text-2xl font-black italic text-slate-800 tracking-tighter">CHECKOUT.</h2>
+                    <div className="bg-white border rounded-[2.5rem] p-8 shadow-sm text-center">
+                        <p className="text-[10px] font-black text-slate-300 mb-6 tracking-[0.3em] uppercase">Scan to Pay ￥{cny}</p>
+                        <div className="bg-slate-50 p-4 rounded-2xl inline-block mb-6 border-2 border-dashed border-slate-200 shadow-inner">
+                            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=PAY_${cny}`} className="w-32 h-32" />
+                        </div>
+                        <label className="block w-full border-2 border-dashed border-slate-100 rounded-3xl p-6 cursor-pointer hover:bg-slate-50 transition-all text-center group">
+                            <input type="file" className="hidden" onChange={handleFile} accept="image/*" />
+                            {form.img ? (
+                                <img src={form.img} className="w-20 h-20 object-cover mx-auto rounded-lg shadow-md" />
+                            ) : (
+                                <div className="text-xs font-bold text-slate-400 group-hover:text-indigo-400">
+                                    <i className="fa-solid fa-camera text-2xl mb-2"></i><br/>上传支付截图
+                                </div>
+                            )}
+                        </label>
+                    </div>
+                    <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="您的微信名 / WeChat" className="w-full p-5 rounded-2xl bg-slate-100 border-none font-bold text-sm focus:ring-2 focus:ring-indigo-600 outline-none" />
+                    <button onClick={submit} className="w-full bg-indigo-600 text-white py-5 rounded-3xl font-black text-lg shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all uppercase">确认下单</button>
+                </div>
+            );
+        };
+
+        const Done = ({ orders }) => {
+            const { id } = useParams();
+            const o = orders.find(x => x.id == id);
+            return (
+                <div className="text-center py-10 animate-in">
+                    <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl shadow-inner"><i className="fa-solid fa-check"></i></div>
+                    <h2 className="text-3xl font-black italic">SUCCESS.</h2>
+                    <div className="mt-8 bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-50 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600"></div>
+                        <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.4em]">Pickup Code</p>
+                        <p className="text-7xl font-black text-indigo-600 mt-4 tracking-tighter">{o?.code}</p>
+                    </div>
+                    <Link to="/" className="inline-block mt-12 text-slate-300 font-black text-xs uppercase underline underline-offset-8 decoration-2 decoration-indigo-600">Back to Shop</Link>
+                </div>
+            );
+        };
+
+        const Admin = ({ orders }) => (
+            <div className="animate-in space-y-6">
+                <h2 className="text-2xl font-black italic">ADMIN ORDERS.</h2>
+                <div className="space-y-3">
+                    {orders.length === 0 ? (
+                        <div className="text-center py-20 text-slate-300 font-bold border-2 border-dashed rounded-3xl">暂无云端订单</div>
+                    ) : orders.map(o => (
+                        <div key={o.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center group">
+                            <div className="flex items-center gap-4">
+                                <div className="text-center">
+                                    <p className="text-2xl font-black text-indigo-600 leading-none">{o.code}</p>
+                                    <p className="text-[8px] font-bold text-slate-300 mt-1 uppercase">{o.time}</p>
+                                </div>
+                                <div className="w-[1px] h-8 bg-slate-100"></div>
+                                <div>
+                                    <p className="text-sm font-black text-slate-800 leading-none">{o.name}</p>
+                                    <p className="text-[10px] font-bold text-emerald-500 mt-1">￥{o.cny}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => window.open(o.img)} className="text-[10px] font-black bg-slate-100 px-3 py-2 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-white transition-all uppercase">凭证</button>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
