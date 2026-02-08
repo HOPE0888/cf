@@ -1,0 +1,299 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickPick - 扫码自提系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom": "https://esm.sh/react-dom@18.2.0/client",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.11.2",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/"
+  }
+}
+</script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
+        body { font-family: 'Noto Sans SC', sans-serif; background-color: #f8fafc; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="module">
+        import React, { useState, useEffect, useMemo } from 'react';
+        import ReactDOM from 'react-dom';
+        import { HashRouter, Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
+
+        // --- 模拟初始数据 ---
+        const INITIAL_PRODUCTS = [
+            { id: 'p1', name: { zh: '精选拿铁', ja: '厳選ラテ' }, price: 500, image: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=400', description: { zh: '口感顺滑，现磨咖啡。', ja: '滑らかな味わい。' } },
+            { id: 'p2', name: { zh: '经典三明治', ja: 'サンドイッチ' }, price: 750, image: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=400', description: { zh: '新鲜火腿与芝士。', ja: '新鮮なハムとチーズ。' } }
+        ];
+
+        const UI = {
+            zh: { shop: '快速自提店', browse: '商品列表', cart: '购物车', checkout: '去结算', code: '取货码', admin: '管理后台', total: '总计', items: '件', wechat: '微信名', date: '取货日期', time: '时间', submit: '提交订单', back: '返回', rate: '汇率' },
+            ja: { shop: 'クイック店', browse: '商品一覧', cart: 'カート', checkout: 'レジへ', code: '受取コード', admin: '管理', total: '合計', items: '点', wechat: 'WeChat名', date: '受取日', time: '時間', submit: '注文確定', back: '戻る', rate: 'レート' }
+        };
+
+        const App = () => {
+            const [lang, setLang] = useState('zh');
+            const [cart, setCart] = useState([]);
+            const [backendUrl, setBackendUrl] = useState(localStorage.getItem('gas_url') || '');
+            const [rate, setRate] = useState(0.048);
+            const [orders, setOrders] = useState([]);
+            const [products, setProducts] = useState(INITIAL_PRODUCTS);
+            const [loading, setLoading] = useState(false);
+
+            const t = UI[lang];
+
+            // 同步云端数据
+            const sync = async () => {
+                if (!backendUrl) return;
+                setLoading(true);
+                try {
+                    const r = await fetch(`${backendUrl}?action=getData`);
+                    const d = await r.json();
+                    if (d.products) setProducts(d.products);
+                    if (d.orders) setOrders(d.orders);
+                } catch(e) { console.error("Sync error:", e); }
+                setLoading(false);
+            };
+
+            useEffect(() => { sync(); }, [backendUrl]);
+
+            const addToCart = (p) => {
+                setCart(prev => {
+                    const exist = prev.find(i => i.id === p.id);
+                    return exist ? prev.map(i => i.id === p.id ? {...i, qty: i.qty + 1} : i) : [...prev, {...p, qty: 1}];
+                });
+            };
+
+            const removeFromCart = (id) => {
+                setCart(prev => prev.map(i => i.id === id ? {...i, qty: i.qty - 1} : i).filter(i => i.qty > 0));
+            };
+
+            const placeOrder = async (orderData) => {
+                const jpy = cart.reduce((s, i) => s + i.price * i.qty, 0);
+                const newOrder = {
+                    id: 'ord_' + Date.now(),
+                    pickupCode: Math.random().toString(36).substr(2, 6).toUpperCase(),
+                    totalJPY: jpy,
+                    totalCNY: (jpy * rate).toFixed(2),
+                    status: 'PENDING',
+                    createdAt: Date.now(),
+                    items: [...cart],
+                    ...orderData
+                };
+                if (backendUrl) {
+                    await fetch(backendUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'addOrder', order: newOrder }) });
+                }
+                setOrders([newOrder, ...orders]);
+                setCart([]);
+                return newOrder;
+            };
+
+            return (
+                <HashRouter>
+                    <div className="max-w-md mx-auto min-h-screen bg-white flex flex-col shadow-2xl relative">
+                        {loading && <div className="absolute top-4 right-4 bg-indigo-600 text-white text-[10px] px-2 py-1 rounded-full animate-pulse z-[100]">SYNCING...</div>}
+                        
+                        <nav className="p-4 border-b flex justify-between items-center sticky top-0 bg-white/80 backdrop-blur-md z-50">
+                            <Link to="/" className="font-black text-xl text-indigo-600 tracking-tighter italic">QUICKPICK.</Link>
+                            <div className="flex gap-4 items-center">
+                                <select value={lang} onChange={e => setLang(e.target.value)} className="text-xs bg-slate-100 border-none rounded-lg p-1 font-bold">
+                                    <option value="zh">中文</option>
+                                    <option value="ja">日本語</option>
+                                </select>
+                                <Link to="/admin" className="text-slate-400 hover:text-indigo-600"><i className="fa-solid fa-screwdriver-wrench"></i></Link>
+                            </div>
+                        </nav>
+
+                        <main className="flex-1 p-4">
+                            <Routes>
+                                <Route path="/" element={<Shop t={t} lang={lang} products={products} cart={cart} onAdd={addToCart} onRemove={removeFromCart} rate={rate} />} />
+                                <Route path="/checkout" element={<Checkout t={t} cart={cart} rate={rate} onOrder={placeOrder} />} />
+                                <Route path="/done/:id" element={<Done t={t} orders={orders} />} />
+                                <Route path="/admin" element={<Admin t={t} orders={orders} backend={backendUrl} setBackend={(v) => {setBackendUrl(v); localStorage.setItem('gas_url', v);}} onRefresh={sync} rate={rate} setRate={setRate} />} />
+                            </Routes>
+                        </main>
+                    </div>
+                </HashRouter>
+            );
+        };
+
+        const Shop = ({ t, lang, products, cart, onAdd, onRemove, rate }) => {
+            const totalQty = cart.reduce((s, i) => s + i.qty, 0);
+            const totalJPY = cart.reduce((s, i) => s + i.price * i.qty, 0);
+            return (
+                <div className="pb-24 animate-fade-in">
+                    <div className="mb-6 p-4 bg-indigo-600 rounded-2xl text-white shadow-lg shadow-indigo-100">
+                        <h2 className="text-2xl font-bold">欢迎光临！</h2>
+                        <p className="text-xs opacity-80 mt-1">扫码下单 · 快速取货 · 汇率: 1 JPY = {rate} CNY</p>
+                    </div>
+                    <div className="space-y-4">
+                        {products.map(p => (
+                            <div key={p.id} className="bg-white p-3 rounded-2xl flex gap-4 border border-slate-100 shadow-sm">
+                                <img src={p.image} className="w-24 h-24 object-cover rounded-xl" />
+                                <div className="flex-1 flex flex-col justify-between">
+                                    <div>
+                                        <h4 className="font-bold text-slate-800">{p.name[lang]}</h4>
+                                        <p className="text-[10px] text-slate-400 mt-1">{p.description[lang]}</p>
+                                    </div>
+                                    <div className="flex justify-between items-end">
+                                        <div>
+                                            <p className="text-indigo-600 font-black">¥{p.price}</p>
+                                            <p className="text-[10px] text-emerald-500 font-bold">≈ ￥{(p.price * rate).toFixed(2)}</p>
+                                        </div>
+                                        <div className="flex items-center gap-3 bg-slate-50 p-1 rounded-full border">
+                                            <button onClick={() => onRemove(p.id)} className="w-6 h-6 flex items-center justify-center rounded-full bg-white shadow-sm">-</button>
+                                            <span className="text-xs font-bold w-4 text-center">{cart.find(i => i.id === p.id)?.qty || 0}</span>
+                                            <button onClick={() => onAdd(p)} className="w-6 h-6 flex items-center justify-center rounded-full bg-indigo-600 text-white shadow-md">+</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    {totalQty > 0 && (
+                        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-80 bg-slate-900 text-white p-4 rounded-2xl flex justify-between items-center shadow-2xl animate-fade-in border border-slate-700">
+                            <div>
+                                <p className="text-[10px] opacity-60 uppercase font-bold">{totalQty} {t.items}</p>
+                                <p className="text-lg font-black">¥{totalJPY} <span className="text-xs font-normal">/ ￥{(totalJPY * rate).toFixed(2)}</span></p>
+                            </div>
+                            <Link to="/checkout" className="bg-indigo-600 px-4 py-2 rounded-xl font-bold text-sm">{t.checkout} <i className="fa-solid fa-chevron-right ml-1"></i></Link>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const Checkout = ({ t, cart, rate, onOrder }) => {
+            const [form, setForm] = useState({ wechat: '', date: '', time: '', screen: '' });
+            const nav = useNavigate();
+            const totalJPY = cart.reduce((s, i) => s + i.price * i.qty, 0);
+            const totalCNY = (totalJPY * rate).toFixed(2);
+
+            const handleFile = (e) => {
+                const f = e.target.files[0];
+                const reader = new FileReader();
+                reader.onloadend = () => setForm({...form, screen: reader.result});
+                reader.readAsDataURL(f);
+            };
+
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    <h2 className="text-2xl font-black text-slate-800 italic uppercase">Order Review.</h2>
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-dashed border-slate-200">
+                        {cart.map(i => <div key={i.id} className="text-sm flex justify-between mb-1"><span>{i.name.zh} x{i.qty}</span><span className="font-bold">¥{i.price * i.qty}</span></div>)}
+                        <div className="border-t border-slate-200 mt-2 pt-2 flex justify-between items-center">
+                            <span className="text-xs font-bold text-slate-400">TOTAL</span>
+                            <div className="text-right">
+                                <p className="text-lg font-black text-indigo-600">¥{totalJPY} JPY</p>
+                                <p className="text-xs font-bold text-emerald-500">￥{totalCNY} CNY</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-100 text-center">
+                        <p className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-widest">扫码支付 / Scan to Pay</p>
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=PAY_CNY" className="mx-auto w-40 h-40 mb-4 p-2 border-2 border-slate-100 rounded-2xl" />
+                        <label className="block bg-slate-100 p-4 rounded-2xl border-2 border-dashed border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors">
+                            <input type="file" onChange={handleFile} className="hidden" />
+                            {form.screen ? <img src={form.screen} className="w-20 h-20 object-cover mx-auto rounded-lg" /> : <p className="text-xs font-bold text-slate-500"><i className="fa-solid fa-camera mr-2"></i>上传支付截图</p>}
+                        </label>
+                    </div>
+
+                    <div className="space-y-3">
+                        <input value={form.wechat} onChange={e => setForm({...form, wechat: e.target.value})} placeholder={t.wechat} className="w-full p-4 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-600" />
+                        <div className="grid grid-cols-2 gap-3">
+                            <input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} className="p-4 rounded-2xl bg-slate-50 border-none text-xs" />
+                            <input type="time" value={form.time} onChange={e => setForm({...form, time: e.target.value})} className="p-4 rounded-2xl bg-slate-50 border-none text-xs" />
+                        </div>
+                    </div>
+
+                    <button onClick={async () => { if(!form.wechat || !form.screen) return alert("请填写信息并上传截图"); const o = await onOrder(form); nav(`/done/${o.id}`); }} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-lg shadow-2xl hover:bg-indigo-600 transition-all">
+                        {t.submit}
+                    </button>
+                </div>
+            );
+        };
+
+        const Done = ({ t, orders }) => {
+            const { id } = useParams();
+            const o = orders.find(x => x.id === id);
+            return (
+                <div className="text-center py-10 animate-fade-in">
+                    <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl"><i className="fa-solid fa-check"></i></div>
+                    <h2 className="text-3xl font-black italic tracking-tighter">SUCCESS!</h2>
+                    <p className="text-slate-400 text-xs mt-2">请凭取货码前往柜台</p>
+                    <div className="mt-10 bg-white p-10 rounded-[40px] shadow-2xl border border-slate-50 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600"></div>
+                        <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em]">{t.code}</p>
+                        <p className="text-6xl font-black text-indigo-600 mt-4 tracking-tighter">{o?.pickupCode}</p>
+                    </div>
+                    <Link to="/" className="inline-block mt-12 text-slate-400 font-bold hover:text-indigo-600 transition-colors underline decoration-2 underline-offset-8">BACK TO SHOP</Link>
+                </div>
+            );
+        };
+
+        const Admin = ({ t, orders, backend, setBackend, onRefresh, rate, setRate }) => {
+            const [viewImg, setViewImg] = useState(null);
+            return (
+                <div className="space-y-6 animate-fade-in pb-10">
+                    <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl">
+                        <h3 className="font-black text-sm uppercase tracking-widest mb-4 flex items-center gap-2"><i className="fa-solid fa-cloud"></i> 云端同步设置</h3>
+                        <input value={backend} onChange={e => setBackend(e.target.value)} placeholder="Google Apps Script URL" className="w-full text-[10px] p-3 bg-white/10 border-none rounded-xl mb-3 text-indigo-300 font-mono" />
+                        <div className="flex gap-3">
+                           <div className="flex-1">
+                               <p className="text-[8px] font-bold opacity-50 mb-1">REAL-TIME RATE</p>
+                               <input type="number" step="0.001" value={rate} onChange={e => setRate(parseFloat(e.target.value))} className="w-full bg-white/10 border-none rounded-xl p-3 text-xs font-bold" />
+                           </div>
+                           <button onClick={onRefresh} className="bg-indigo-600 px-6 rounded-xl font-bold text-xs"><i className="fa-solid fa-rotate"></i></button>
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        <h3 className="font-black text-slate-800 text-sm uppercase tracking-widest">订单管理 ({orders.length})</h3>
+                        {orders.length === 0 ? <p className="text-center py-10 text-slate-300 italic text-xs">暂无数据</p> : orders.map(o => (
+                            <div key={o.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center group hover:border-indigo-200 transition-all">
+                                <div className="flex items-center gap-4">
+                                    <div className="text-center">
+                                        <p className="text-2xl font-black text-indigo-600 leading-none">{o.pickupCode}</p>
+                                        <p className="text-[8px] font-bold text-slate-400 mt-1">{new Date(o.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-slate-700 text-sm">{o.wechatName}</p>
+                                        <p className="text-[10px] text-emerald-500 font-bold">￥{o.totalCNY}</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    {o.screen && <button onClick={() => setViewImg(o.screen)} className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center hover:bg-indigo-600 hover:text-white transition-all"><i className="fa-solid fa-image"></i></button>}
+                                    <button className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center"><i className="fa-solid fa-check"></i></button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {viewImg && (
+                        <div className="fixed inset-0 bg-slate-900/90 z-[200] flex items-center justify-center p-4" onClick={() => setViewImg(null)}>
+                            <img src={viewImg} className="max-w-full max-h-full rounded-2xl shadow-2xl shadow-white/10" />
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
